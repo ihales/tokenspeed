@@ -21,6 +21,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
     private var settingsWindow: NSWindow?
     private var polling: Task<Void, Never>?
+    private var localPolling: Task<Void, Never>?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         installMainMenu()
@@ -28,6 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             self?.showSettings()
         })
         polling = Task { await store.poll() }
+        localPolling = Task { await store.pollPinnedLocal() }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -37,6 +39,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationWillTerminate(_ notification: Notification) {
         polling?.cancel()
+        localPolling?.cancel()
     }
 
     @objc private func showSettings() {

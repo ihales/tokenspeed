@@ -2,6 +2,8 @@ import ServiceManagement
 import SwiftUI
 
 struct GeneralSettingsView: View {
+    @AppStorage(LocalRequestThroughput.codexPreferenceKey) private var showCodexThroughput = true
+    @AppStorage(LocalRequestThroughput.claudePreferenceKey) private var showClaudeThroughput = true
     @ViewState private var loginStatus = SMAppService.mainApp.status
     @ViewState private var loginError: String?
 
@@ -30,6 +32,17 @@ struct GeneralSettingsView: View {
                 Text("Data")
             } footer: {
                 Text("Median TPS comes from the public feed behind OpenRouter’s provider pages and uptime from the OpenRouter Endpoints API. TokenSpeed records TPS every 5 minutes to draw its 24-hour trend lines.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            Section {
+                Toggle("Show Codex in the popover", isOn: $showCodexThroughput)
+                Toggle("Show Claude Code in the popover", isOn: $showClaudeThroughput)
+            } header: {
+                Text("Local Activity")
+            } footer: {
+                Text("Uses local logs to estimate request TPS over the last hour, including time to first output.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }

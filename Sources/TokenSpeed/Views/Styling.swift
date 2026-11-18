@@ -1,6 +1,24 @@
 import AppKit
 import SwiftUI
 
+struct ProviderHeading: View {
+    let title: String
+    var symbol: String? = nil
+
+    var body: some View {
+        HStack(spacing: 4) {
+            if let symbol { Image(systemName: symbol).imageScale(.small) }
+            Text(title)
+        }
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.top, 10)
+        .padding(.bottom, 2)
+        .accessibilityAddTraits(.isHeader)
+    }
+}
+
 extension BadgeColor {
     var color: Color { Color(nsColor: appKitColor) }
 }
@@ -26,7 +44,6 @@ enum UptimeHealth {
     }
 }
 
-/// A colored dot followed by a rule name, as shown in the popover header.
 struct BadgeChip: View {
     let rule: BadgeRule
 

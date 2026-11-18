@@ -2,8 +2,16 @@ import AppKit
 import SwiftUI
 
 struct MonitorPopover: View {
+    private enum Source: String {
+        case local
+        case openRouter
+    }
+
     let store: MonitorStore
     let showSettings: () -> Void
+    @AppStorage("PopoverThroughputSource") private var selectedSource: Source = .local
+    @AppStorage(LocalRequestThroughput.codexPreferenceKey) private var showCodexThroughput = true
+    @AppStorage(LocalRequestThroughput.claudePreferenceKey) private var showClaudeThroughput = true
 
     private static let maxListHeight: CGFloat = 420
 
@@ -11,24 +19,21 @@ struct MonitorPopover: View {
         VStack(spacing: 0) {
             header
             Divider()
-            if store.watched.isEmpty {
-                ContentUnavailableView {
-                    Label("No Models Yet", systemImage: "gauge.with.dots.needle.33percent")
-                } description: {
-                    Text("Add OpenRouter models to track their output speed.")
-                } actions: {
-                    Button("Add Models…", action: showSettings)
+            // Grows with its content up to a cap, then scrolls.
+            ScrollView {
+                Group {
+                    switch selectedSource {
+                    case .local: localList
+                    case .openRouter: openRouterList
+                    }
                 }
-                .padding(.vertical, 12)
-            } else {
-                // Grows with its content up to a cap, then scrolls.
-                ScrollView {
-                    list
-                }
-                .scrollBounceBehavior(.basedOnSize)
-                .frame(maxHeight: Self.maxListHeight)
-                .fixedSize(horizontal: false, vertical: true)
+                .padding(.horizontal, 8)
+                .padding(.bottom, 8)
             }
+            .id(selectedSource)
+            .scrollBounceBehavior(.basedOnSize)
+            .frame(maxHeight: Self.maxListHeight)
+            .fixedSize(horizontal: false, vertical: true)
             Divider()
             footer
         }
@@ -38,58 +43,123 @@ struct MonitorPopover: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(spacing: 8) {
-            Text("TokenSpeed")
-                .font(.headline)
-            Spacer(minLength: 8)
-            ForEach(store.matchingRules) { rule in
-                BadgeChip(rule: rule)
-                    .frame(maxWidth: 110)
-                    .fixedSize(horizontal: false, vertical: true)
+        let badges = store.matchingRules
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                Text("TokenSpeed")
+                    .font(.headline)
+                Spacer(minLength: 8)
+                sourceSwitcher
+            }
+            .frame(height: 42)
+
+            if !badges.isEmpty {
+                HStack(spacing: 6) {
+                    ForEach(badges) { rule in
+                        BadgeChip(rule: rule)
+                            .frame(maxWidth: 124)
+                    }
+                }
+                .padding(.bottom, 8)
             }
         }
         .padding(.horizontal, 16)
-        .frame(height: 40)
+    }
+
+    private var sourceSwitcher: some View {
+        HStack(spacing: 2) {
+            sourceButton(.local, title: "Local", symbol: "laptopcomputer")
+            sourceButton(.openRouter, title: "OpenRouter", symbol: "globe")
+        }
+        .padding(3)
+        .background(Color.primary.opacity(0.06), in: Capsule())
+        .overlay { Capsule().strokeBorder(Color.primary.opacity(0.08)) }
+        .fixedSize()
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel("Throughput source")
+    }
+
+    private func sourceButton(_ source: Source, title: String, symbol: String) -> some View {
+        let isSelected = selectedSource == source
+        return Button {
+            selectedSource = source
+        } label: {
+            HStack(spacing: 5) {
+                Image(systemName: symbol)
+                    .foregroundStyle(isSelected ? Color.accentColor : Color.secondary)
+                Text(title)
+            }
+            .font(.system(size: 11, weight: .semibold))
+            .foregroundStyle(isSelected ? Color.primary : Color.secondary)
+            .padding(.horizontal, 9)
+            .frame(height: 22)
+            .background(isSelected ? Color.accentColor.opacity(0.16) : Color.clear, in: Capsule())
+            .contentShape(Capsule())
+        }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
     // MARK: List
 
-    private var list: some View {
+    private var localList: some View {
         VStack(alignment: .leading, spacing: 2) {
-            ForEach(store.providerGroups) { group in
-                HStack(spacing: 4) {
-                    if group.isAutomatic {
-                        Image(systemName: "bolt.fill").imageScale(.small)
-                    }
-                    Text(group.isAutomatic ? "Automatic · Fastest Endpoint" : group.title)
+            if showCodexThroughput {
+                LocalThroughputSection(store: store, source: .codex)
+            }
+            if showClaudeThroughput {
+                LocalThroughputSection(store: store, source: .claudeCode)
+            }
+            if !showCodexThroughput && !showClaudeThroughput {
+                ContentUnavailableView {
+                    Label("Local Tracking Is Off", systemImage: "gauge.with.dots.needle.33percent")
+                } actions: {
+                    Button("Settings…", action: showSettings)
                 }
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 8)
-                .padding(.top, 10)
-                .padding(.bottom, 2)
-                .accessibilityAddTraits(.isHeader)
+                .padding(.vertical, 12)
+            }
+        }
+    }
+
+    private var openRouterList: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if store.watched.isEmpty {
+                ContentUnavailableView {
+                    Label("No Models Yet", systemImage: "gauge.with.dots.needle.33percent")
+                } description: {
+                    Text("Add OpenRouter models to track their output speed.")
+                } actions: {
+                    Button("Add Models…", action: showSettings)
+                }
+                .padding(.vertical, 12)
+            }
+            ForEach(store.providerGroups) { group in
+                ProviderHeading(title: group.isAutomatic ? "Automatic · Fastest Endpoint" : group.title,
+                                symbol: group.isAutomatic ? "bolt.fill" : nil)
                 ForEach(group.models) { model in
                     ModelRow(store: store, model: model)
                 }
             }
         }
-        .padding(.horizontal, 8)
-        .padding(.bottom, 8)
     }
 
     // MARK: Footer
 
     private var footer: some View {
         HStack(spacing: 10) {
-            status
+            if selectedSource == .openRouter { status }
             Spacer(minLength: 8)
             Button {
-                Task { await store.refresh() }
+                switch selectedSource {
+                case .local:
+                    if showCodexThroughput { Task { await store.refreshLocal(.codex) } }
+                    if showClaudeThroughput { Task { await store.refreshLocal(.claudeCode) } }
+                case .openRouter: Task { await store.refresh() }
+                }
             } label: {
                 Image(systemName: "arrow.clockwise")
             }
-            .disabled(store.isRefreshing)
+            .disabled(selectedSource == .openRouter && store.isRefreshing)
             .help("Refresh Now")
             .accessibilityLabel("Refresh now")
             .keyboardShortcut("r")
@@ -146,7 +216,7 @@ private struct ModelRow: View {
     @ViewState private var isHovered = false
 
     private var reading: EndpointReading? { store.reading(for: model) }
-    private var isPinned: Bool { model.id == store.headlineID }
+    private var isPinned: Bool { store.isHeadline(model) }
     private var isStale: Bool { store.isStale(model) }
 
     var body: some View {

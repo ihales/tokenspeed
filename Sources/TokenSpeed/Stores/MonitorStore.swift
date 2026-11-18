@@ -6,6 +6,7 @@ final class MonitorStore {
     private struct Preferences: Codable {
         var watched = OpenRouterModel.defaults.map(WatchedModel.migrating)
         var headlineID = OpenRouterModel.defaults.first?.id
+        var localHeadline: LocalRequestThroughput.Pin?
         var rules: [BadgeRule] = []
 
         init() {}
@@ -18,6 +19,7 @@ final class MonitorStore {
                 watched = try container.decode([OpenRouterModel].self, forKey: .watched).map(WatchedModel.migrating)
             }
             headlineID = try container.decodeIfPresent(String.self, forKey: .headlineID) ?? watched.first?.id
+            localHeadline = try? container.decode(LocalRequestThroughput.Pin.self, forKey: .localHeadline)
             rules = try container.decode([BadgeRule].self, forKey: .rules)
         }
     }
@@ -34,8 +36,20 @@ final class MonitorStore {
         let sample: Sample
     }
 
+    enum LocalActivity {
+        case unavailable
+        case available(LocalRequestThroughput)
+
+        var snapshot: LocalRequestThroughput? {
+            guard case let .available(snapshot) = self else { return nil }
+            return snapshot
+        }
+    }
+
     private static let preferencesKey = "MonitorPreferences"
     private let client = OpenRouterClient()
+    private let codexReader: CodexThroughputReader
+    private let claudeReader: ClaudeThroughputReader
     private let defaults: UserDefaults
     private var preferences: Preferences {
         didSet {
@@ -56,10 +70,16 @@ final class MonitorStore {
     private(set) var updatedAt: Date?
     private var history: ThroughputHistory
     private let historyURL: URL?
+    @ObservationIgnored private var readingLocalSources: Set<LocalRequestThroughput.Source> = []
+    @ObservationIgnored private var lastLocalRefresh: [LocalRequestThroughput.Source: ContinuousClock.Instant] = [:]
+    private(set) var localActivity: [LocalRequestThroughput.Source: LocalActivity] = [:]
 
-    init(defaults: UserDefaults = .standard, historyURL: URL? = ThroughputHistory.defaultURL) {
+    init(defaults: UserDefaults = .standard, historyURL: URL? = ThroughputHistory.defaultURL,
+         codexReader: CodexThroughputReader = .init(), claudeReader: ClaudeThroughputReader = .init()) {
         self.defaults = defaults
         self.historyURL = historyURL
+        self.codexReader = codexReader
+        self.claudeReader = claudeReader
         history = ThroughputHistory.load(from: historyURL)
         let saved = defaults.data(forKey: Self.preferencesKey)
         preferences = saved.flatMap { try? JSONDecoder().decode(Preferences.self, from: $0) } ?? Preferences()
@@ -75,10 +95,99 @@ final class MonitorStore {
 
     var headlineID: String {
         get { preferences.headlineID ?? watched.first?.id ?? "" }
-        set { preferences.headlineID = newValue }
+        set {
+            var updated = preferences
+            updated.headlineID = newValue
+            updated.localHeadline = nil
+            preferences = updated
+        }
+    }
+
+    var localHeadline: LocalRequestThroughput.Pin? {
+        get { preferences.localHeadline }
+        set { preferences.localHeadline = newValue }
     }
 
     var headline: WatchedModel? { watched.first { $0.id == headlineID } }
+
+    func isHeadline(_ watch: WatchedModel) -> Bool {
+        localHeadline == nil && watch.id == headlineID
+    }
+
+    func localReading(for pin: LocalRequestThroughput.Pin) -> LocalRequestThroughput.Reading? {
+        localActivity[pin.source]?.snapshot?.models.first { $0.id == pin.modelID }?
+            .readings.first { $0.tier == pin.tier }
+    }
+
+    func localModelName(for model: String) -> String {
+        let isClaude = model.hasPrefix("claude-")
+        let slug = isClaude
+            ? model.replacingOccurrences(of: #"-(\d+)-(\d)(?:-\d{8})?$"#, with: "-$1.$2", options: .regularExpression)
+            : model
+        let id = (isClaude ? "anthropic/" : "openai/") + slug
+        if let known = catalogByID[id] ?? OpenRouterModel.defaults.first(where: { $0.id == id }) {
+            return known.shortName
+        }
+
+        if isClaude {
+            return slug.replacingOccurrences(of: "-", with: " ").capitalized
+        }
+        guard slug.hasPrefix("gpt-") else { return model }
+        let undated = slug.replacingOccurrences(of: #"-(?:\d{8}|\d{4}-\d{2}-\d{2})$"#, with: "",
+                                                 options: .regularExpression)
+        let parts = undated.split(separator: "-", maxSplits: 2)
+        guard parts.count >= 2 else { return model }
+        let name = "GPT-\(parts[1])"
+        guard parts.count == 3 else { return name }
+        return "\(name) \(parts[2].replacingOccurrences(of: "-", with: " ").capitalized)"
+    }
+
+    func refreshLocal(_ source: LocalRequestThroughput.Source, minimumInterval: Duration = .zero) async {
+        let startedAt = ContinuousClock.now
+        if let previous = lastLocalRefresh[source], previous.duration(to: startedAt) < minimumInterval { return }
+        guard readingLocalSources.insert(source).inserted else { return }
+        defer { readingLocalSources.remove(source) }
+        let snapshot = switch source {
+        case .codex: await codexReader.snapshot()
+        case .claudeCode: await claudeReader.snapshot()
+        }
+        guard !Task.isCancelled else { return }
+        lastLocalRefresh[source] = startedAt
+        localActivity[source] = snapshot.map(LocalActivity.available) ?? .unavailable
+    }
+
+    func pollVisibleLocal(_ source: LocalRequestThroughput.Source) async {
+        let interval = Duration.seconds(30)
+        while !Task.isCancelled {
+            await refreshLocal(source, minimumInterval: interval)
+            do {
+                try await Task.sleep(for: localRefreshDelay(for: source, interval: interval))
+            } catch {
+                return
+            }
+        }
+    }
+
+    func pollPinnedLocal() async {
+        let interval = Duration.seconds(60)
+        while !Task.isCancelled {
+            var delay = interval
+            if let source = localHeadline?.source {
+                await refreshLocal(source, minimumInterval: interval)
+                delay = localRefreshDelay(for: source, interval: interval)
+            }
+            do {
+                try await Task.sleep(for: delay)
+            } catch {
+                return
+            }
+        }
+    }
+
+    private func localRefreshDelay(for source: LocalRequestThroughput.Source, interval: Duration) -> Duration {
+        guard let previous = lastLocalRefresh[source] else { return interval }
+        return max(.seconds(1), interval - previous.duration(to: .now))
+    }
 
     /// Readings that badge rules evaluate, keyed by watch ID. Stale rows are excluded.
     var ruleReadings: [String: EndpointReading] {

@@ -1,14 +1,16 @@
 # TokenSpeed
 
-A tiny macOS menu bar app that shows how fast LLMs are running on [OpenRouter](https://openrouter.ai), in output tokens per second.
+A tiny macOS menu bar app that tracks output tokens per second for [OpenRouter](https://openrouter.ai), Codex, and Claude Code.
 
-<img src="docs/popover.png" alt="TokenSpeed popover showing models with TPS, uptime, and 24-hour sparklines" width="440">
+<img src="docs/popover.png" alt="TokenSpeed’s OpenRouter watchlist with TPS, uptime, and 24-hour sparklines" width="440">
 
-- **Live speed in the menu bar.** Pin any model and see its median TPS at a glance.
-- **Watch any endpoint.** Track a model on a specific provider, tier, or region, or let **Automatic** follow the fastest one.
-- **24-hour trends.** Sparklines of median TPS, recorded locally every 5 minutes.
-- **Badge rules.** Light up a colored dot when, say, Fable tops 20 TPS or runs twice as fast as Opus.
-- **No API key, no Dock icon.** Just public OpenRouter data, refreshed every minute.
+- **Local sessions.** See the last hour of Codex and Claude Code request TPS, grouped by model and speed tier, with sparklines and sample counts.
+- **OpenRouter watchlist.** Track median TPS and uptime for a specific provider, tier, or region, or let **Automatic** follow the fastest endpoint.
+- **Menu bar pin.** Hover over a row and click its pin to show that local model and tier or OpenRouter endpoint in the menu bar.
+- **Badge rules.** Set alerts on OpenRouter throughput or uptime. Active rules appear as colored dots in the menu bar and labeled pills in the popover.
+- **No API key or Dock icon.**
+
+The popover remembers whether you last viewed Local or OpenRouter.
 
 ## Install
 
@@ -20,8 +22,12 @@ task install     # builds a release bundle into /Applications and launches it
 
 To start TokenSpeed when you log in, turn on **Settings → General → Open TokenSpeed at login**.
 
-Other tasks: `task run` (debug build), `task build` (bundle into `dist/`), `task uninstall`.
+Use `task run` for a debug build, `task build` to bundle into `dist/`, and `task uninstall` to remove the app.
 
 ## How it works
 
-Median TPS comes from the public feed behind OpenRouter's provider pages, and 24-hour uptime from the [Endpoints API](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model). OpenRouter only publishes daily throughput history, so TokenSpeed records its own readings and keeps 24 hours in `~/Library/Application Support/TokenSpeed/`. The provider-page feed is a frontend API, so its schema may change.
+**Local** averages per-request output TPS over a rolling hour. Each timing includes the wait for first output and excludes tool execution between requests. The sample count shows how many completed requests had usable timing. TokenSpeed reads Codex rollouts and diagnostics from `~/.codex` and Claude Code transcripts from `~/.claude/projects`. It also honors `CODEX_HOME` and `CLAUDE_CONFIG_DIR`.
+
+Local refreshes every 30 seconds while visible and every minute for a pinned source in the background. You can show or hide Codex and Claude Code independently in **Settings → General → Local Activity**.
+
+**OpenRouter** refreshes every minute. Median TPS comes from the public feed behind provider pages, and 24-hour uptime comes from the Endpoints API. TokenSpeed records TPS every five minutes and keeps 24 hours of history in `~/Library/Application Support/TokenSpeed/`. [OpenRouter Endpoints API](https://openrouter.ai/docs/api/api-reference/endpoints/list-all-endpoints-for-a-model)

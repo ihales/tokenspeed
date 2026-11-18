@@ -96,7 +96,7 @@ struct ModelSettingsView: View {
     @ViewBuilder
     private func menuItems(for watch: WatchedModel) -> some View {
         Button("Show in Menu Bar", systemImage: "pin") { store.headlineID = watch.id }
-            .disabled(watch.id == store.headlineID)
+            .disabled(store.isHeadline(watch))
         Button("Change Endpoint…", systemImage: "slider.horizontal.3") {
             edit = .init(model: watch.model, watch: watch)
         }
@@ -176,7 +176,7 @@ private struct WatchlistRow: View {
     let watch: WatchedModel
 
     var body: some View {
-        let isPinned = watch.id == store.headlineID
+        let isPinned = store.isHeadline(watch)
         let reading = store.reading(for: watch)
         HStack(spacing: 10) {
             Button {

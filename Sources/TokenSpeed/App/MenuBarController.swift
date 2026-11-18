@@ -7,6 +7,7 @@ final class MenuBarController: NSObject {
     private let store: MonitorStore
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
+    private var outsideClickMonitor: Any?
 
     init(store: MonitorStore, showSettings: @escaping () -> Void) {
         self.store = store
@@ -14,6 +15,7 @@ final class MenuBarController: NSObject {
 
         popover.behavior = .transient
         popover.animates = false
+        popover.delegate = self
         let host = NSHostingController(rootView: MonitorPopover(store: store) { [weak self] in
             self?.popover.performClose(nil)
             showSettings()
@@ -40,7 +42,23 @@ final class MenuBarController: NSObject {
 
     private func showPopover() {
         guard !popover.isShown, let button = item.button else { return }
+        // An accessory app isn't active by default, so a transient popover never sees
+        // clicks in other apps. Activate, and close on any mouse-down outside the app.
+        NSApp.activate()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        popover.contentViewController?.view.window?.makeKey()
+        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
+            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
+        ) { [weak self] _ in
+            Task { @MainActor in self?.popover.performClose(nil) }
+        }
+    }
+
+    private func removeOutsideClickMonitor() {
+        if let monitor = outsideClickMonitor {
+            NSEvent.removeMonitor(monitor)
+            outsideClickMonitor = nil
+        }
     }
 
     private func observeStatus() {
@@ -53,15 +71,27 @@ final class MenuBarController: NSObject {
 
     private func updateButton() {
         guard let button = item.button else { return }
-        let model = store.headline
-        let isStale = model.map(store.isStale) ?? false
-        let reading = model.flatMap { store.reading(for: $0) }
+        let name: String?
+        let status: String?
+        let isStale: Bool
+        if let pin = store.localHeadline {
+            name = "\(pin.source.title) · \(store.localModelName(for: pin.modelID)) · \(pin.tier.rawValue)"
+            status = store.localReading(for: pin)?.average?.tpsText
+            isStale = false
+        } else if let model = store.headline {
+            name = model.title
+            status = store.reading(for: model)?.tps?.tpsText
+            isStale = store.isStale(model)
+        } else {
+            name = nil
+            status = nil
+            isStale = false
+        }
         let badges = store.matchingRules
-        let status = reading?.tps?.tpsText
         let font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .medium)
         var attributes: [NSAttributedString.Key: Any] = [.font: font]
         if isStale { attributes[.foregroundColor] = NSColor.secondaryLabelColor }
-        let title = NSMutableAttributedString(string: model == nil ? "" : (status ?? "–"), attributes: attributes)
+        let title = NSMutableAttributedString(string: name == nil ? "" : (status ?? "–"), attributes: attributes)
         if !badges.isEmpty {
             title.append(NSAttributedString(string: " ", attributes: [.font: NSFont.systemFont(ofSize: 4)]))
         }
@@ -69,8 +99,8 @@ final class MenuBarController: NSObject {
             title.append(Self.dot(badge.color.appKitColor, font: font))
         }
         button.attributedTitle = title
-        var summary = model.map {
-            "\($0.title), \(status.map { "\($0) tokens per second" } ?? "TPS unavailable")\(isStale ? ", stale" : "")"
+        var summary = name.map {
+            "\($0), \(status.map { "\($0) tokens per second" } ?? "TPS unavailable")\(isStale ? ", stale" : "")"
         } ?? "TokenSpeed"
         if !badges.isEmpty {
             summary += ", " + badges.map(\.label).joined(separator: ", ")
@@ -91,6 +121,12 @@ final class MenuBarController: NSObject {
         attachment.image = image
         attachment.bounds = NSRect(x: 0, y: (font.capHeight - diameter) / 2, width: image.size.width, height: diameter)
         return NSAttributedString(attachment: attachment)
+    }
+}
+
+extension MenuBarController: NSPopoverDelegate {
+    func popoverDidClose(_ notification: Notification) {
+        removeOutsideClickMonitor()
     }
 }
 

@@ -4,6 +4,7 @@ import SwiftUI
 struct ThroughputSparkline: View {
     let points: [ThroughputPoint]
     var tint: Color = .accentColor
+    var seriesTitle = "Median TPS"
 
     var body: some View {
         Canvas { context, size in
@@ -59,8 +60,9 @@ struct ThroughputSparkline: View {
             .formatted(.units(allowed: [.hours, .minutes], width: .abbreviated, maximumUnitCount: 2))
         let low = points.map(\.tps).min() ?? first.tps
         let high = points.map(\.tps).max() ?? last.tps
-        return "Median TPS over the last \(span): \(first.tps.tpsText) at "
-            + "\(first.date.formatted(date: .omitted, time: .shortened)) → \(last.tps.tpsText) now "
+        return "\(seriesTitle) over \(span): \(first.tps.tpsText) at "
+            + "\(first.date.formatted(date: .omitted, time: .shortened)) → \(last.tps.tpsText) at "
+            + "\(last.date.formatted(date: .omitted, time: .shortened)) "
             + "(range \(low.tpsText)–\(high.tpsText))"
     }
 }
