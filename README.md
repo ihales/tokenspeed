@@ -6,25 +6,25 @@ A tiny macOS menu bar app that tracks output tokens per second for [OpenRouter](
 
 *Example data shown.*
 
-- **Local sessions.** See the last hour of Codex and Claude Code request TPS, grouped by model and speed tier, with sparklines and sample counts.
-- **OpenRouter watchlist.** Track median TPS and uptime for a specific provider, tier, or region, or let **Automatic** follow the fastest endpoint.
-- **Menu bar pin.** Hover over a row and click its pin to show that local model and tier or OpenRouter endpoint in the menu bar.
-- **Badge rules.** Set alerts on OpenRouter throughput or uptime. Active rules appear as colored dots in the menu bar and labeled pills in the popover.
-- **No API key or Dock icon.**
-
-The popover remembers whether you last viewed Local or OpenRouter.
-
 ## Install
 
-Requires macOS 14+, Swift 6, and [Task](https://taskfile.dev).
+Requires macOS 14+, Swift 6, and [Task](https://taskfile.dev). No API key is required.
 
 ```sh
-task install     # builds a release bundle into /Applications and launches it
+git clone https://github.com/ihales/tokenspeed.git
+cd tokenspeed
+task install
 ```
 
-To start TokenSpeed when you log in, turn on **Settings → General → Open TokenSpeed at login**.
+This builds TokenSpeed, installs it in `/Applications`, and launches it. Click the speedometer in your menu bar and choose **Local** to see recent requests from your existing Codex and Claude Code logs.
 
-Use `task run` for a debug build, `task build` to bundle into `dist/`, and `task uninstall` to remove the app.
+## Use TokenSpeed
+
+- **Compare speed tiers.** Use Local to see how the same model performed on the tiers you used in the last hour. Check the sample counts when comparing averages.
+- **Keep a reading in view.** Hover over the model and tier you use most and click the pin to show its TPS in the menu bar.
+- **Watch an OpenRouter endpoint.** Add a model under **Settings → Models** and choose a provider, tier, or region. **Automatic** follows the fastest endpoint. Set throughput or uptime thresholds under **Settings → Badge Rules**.
+
+TokenSpeed remembers your last tab. To start it at login, turn on **Settings → General → Open TokenSpeed at login**.
 
 ## How it works
 
