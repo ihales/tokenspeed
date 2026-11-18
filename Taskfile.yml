@@ -1,0 +1,37 @@
+version: '3'
+
+vars:
+  APP_NAME: TokenSpeed
+  INSTALL_DIR: '{{.INSTALL_DIR | default "/Applications"}}'
+
+tasks:
+  default:
+    cmds:
+      - task --list
+    silent: true
+
+  build:
+    desc: Build a release app bundle in dist/
+    cmds:
+      - ./script/bundle.sh release
+
+  run:
+    desc: Build a debug bundle and launch it
+    cmds:
+      - ./script/build_and_run.sh
+
+  install:
+    desc: Build a release bundle, copy it to {{.INSTALL_DIR}}, and launch it
+    deps: [build]
+    cmds:
+      - pkill -x {{.APP_NAME}} || true
+      - rm -rf "{{.INSTALL_DIR}}/{{.APP_NAME}}.app"
+      - ditto dist/{{.APP_NAME}}.app "{{.INSTALL_DIR}}/{{.APP_NAME}}.app"
+      - open "{{.INSTALL_DIR}}/{{.APP_NAME}}.app"
+      - echo "Installed {{.INSTALL_DIR}}/{{.APP_NAME}}.app — turn on Settings → General → Open TokenSpeed at login."
+
+  uninstall:
+    desc: Quit TokenSpeed and remove it from {{.INSTALL_DIR}}
+    cmds:
+      - pkill -x {{.APP_NAME}} || true
+      - rm -rf "{{.INSTALL_DIR}}/{{.APP_NAME}}.app"
