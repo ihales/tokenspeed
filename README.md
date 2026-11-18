@@ -2,7 +2,10 @@
 
 A tiny macOS menu bar app that tracks output tokens per second for [OpenRouter](https://openrouter.ai), Codex, and Claude Code.
 
-<img src="docs/popover.png" alt="TokenSpeed’s OpenRouter watchlist with TPS, uptime, and 24-hour sparklines" width="440">
+<img src="docs/popover-local.png" alt="Local tab showing Codex and Claude Code throughput by model and speed tier, with one-hour sparklines and sample counts" width="420">
+<img src="docs/popover.png" alt="OpenRouter tab showing a watchlist grouped by provider, with throughput, uptime, and sparklines" width="420">
+
+*Example data shown in both screenshots.*
 
 - **Local sessions.** See the last hour of Codex and Claude Code request TPS, grouped by model and speed tier, with sparklines and sample counts.
 - **OpenRouter watchlist.** Track median TPS and uptime for a specific provider, tier, or region, or let **Automatic** follow the fastest endpoint.
