@@ -4,16 +4,19 @@ import SwiftUI
 
 @MainActor
 final class MenuBarController: NSObject {
+    private static let mouseDownEvents: NSEvent.EventTypeMask = [.leftMouseDown, .rightMouseDown, .otherMouseDown]
     private let store: MonitorStore
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
-    private var outsideClickMonitor: Any?
+    private var localEventMonitor: Any?
+    private var globalClickMonitor: Any?
 
     init(store: MonitorStore, showSettings: @escaping () -> Void) {
         self.store = store
         super.init()
 
-        popover.behavior = .transient
+        // A transient popover can close on mouse-down before the button toggles on mouse-up.
+        popover.behavior = .applicationDefined
         popover.animates = false
         popover.delegate = self
         let host = NSHostingController(rootView: MonitorPopover(store: store) { [weak self] in
@@ -29,6 +32,10 @@ final class MenuBarController: NSObject {
             button.target = self
             button.action = #selector(togglePopover)
         }
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(applicationDidResignActive),
+            name: NSApplication.didResignActiveNotification, object: NSApp
+        )
         observeStatus()
     }
 
@@ -42,23 +49,27 @@ final class MenuBarController: NSObject {
 
     private func showPopover() {
         guard !popover.isShown, let button = item.button else { return }
-        // An accessory app isn't active by default, so a transient popover never sees
-        // clicks in other apps. Activate, and close on any mouse-down outside the app.
         NSApp.activate()
         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-        popover.contentViewController?.view.window?.makeKey()
-        outsideClickMonitor = NSEvent.addGlobalMonitorForEvents(
-            matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]
-        ) { [weak self] _ in
-            Task { @MainActor in self?.popover.performClose(nil) }
-        }
     }
 
-    private func removeOutsideClickMonitor() {
-        if let monitor = outsideClickMonitor {
-            NSEvent.removeMonitor(monitor)
-            outsideClickMonitor = nil
+    private func handleLocalEvent(_ event: NSEvent) -> NSEvent? {
+        if event.type == .keyDown {
+            if event.charactersIgnoringModifiers == String(KeyEquivalent.escape.character) {
+                popover.performClose(nil)
+                return nil
+            }
+            return event
         }
+        let isToggleClick = event.type == .leftMouseDown && event.window === item.button?.window
+        if !isToggleClick && event.window !== popover.contentViewController?.view.window {
+            popover.performClose(nil)
+        }
+        return event
+    }
+
+    @objc private func applicationDidResignActive(_ notification: Notification) {
+        popover.performClose(nil)
     }
 
     private func observeStatus() {
@@ -125,8 +136,23 @@ final class MenuBarController: NSObject {
 }
 
 extension MenuBarController: NSPopoverDelegate {
+    func popoverDidShow(_ notification: Notification) {
+        popover.contentViewController?.view.window?.makeKey()
+        localEventMonitor = NSEvent.addLocalMonitorForEvents(matching: [Self.mouseDownEvents, .keyDown]) { [weak self] event in
+            guard let self else { return event }
+            return self.handleLocalEvent(event)
+        }
+        globalClickMonitor = NSEvent.addGlobalMonitorForEvents(matching: Self.mouseDownEvents) { [weak self] _ in
+            MainActor.assumeIsolated { self?.popover.performClose(nil) }
+        }
+    }
+
     func popoverDidClose(_ notification: Notification) {
-        removeOutsideClickMonitor()
+        for monitor in [localEventMonitor, globalClickMonitor].compactMap({ $0 }) {
+            NSEvent.removeMonitor(monitor)
+        }
+        localEventMonitor = nil
+        globalClickMonitor = nil
     }
 }
 
